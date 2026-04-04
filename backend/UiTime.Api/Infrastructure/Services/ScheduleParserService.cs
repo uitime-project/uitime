@@ -5,7 +5,7 @@ using UiTime.Api.Core.Entities;
 
 namespace UiTime.Api.Infrastructure.Services;
 
-public class ScheduleParserService
+public class ScheduleParserService : IScheduleParserService
 {
     public IEnumerable<ParsedLessonDto> ParseSchedule(Stream icsStream)
     {
