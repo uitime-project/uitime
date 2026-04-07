@@ -1,1 +1,1 @@
-# uitime
+# uitime-bot
