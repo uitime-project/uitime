@@ -1,17 +1,27 @@
 using System.Text;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using UiTime.Api.Infrastructure.Data;
 using UiTime.Api.Infrastructure.Services;
-using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("JWT Secret is missing.");
@@ -47,7 +57,7 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "Введите JWT токен так: Bearer {твой_токен}",
+        Description = "Enter JWT token like: Bearer {your_token}",
         Name = "Authorization",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.Http,
@@ -59,11 +69,7 @@ builder.Services.AddSwaggerGen(c =>
         {
             new OpenApiSecurityScheme
             {
-                Reference = new OpenApiReference 
-                { 
-                    Type = ReferenceType.SecurityScheme, 
-                    Id = "Bearer" 
-                }
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
             },
             Array.Empty<string>()
         }
@@ -72,11 +78,19 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(c => {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "UiTime API v1");
+        c.RoutePrefix = "swagger";
+    });
+}
+
+app.UseCors("AllowAll");
+
 app.UseAuthentication();
 app.UseAuthorization();
-
-app.UseSwagger();
-app.UseSwaggerUI();
 
 app.MapControllers();
 
