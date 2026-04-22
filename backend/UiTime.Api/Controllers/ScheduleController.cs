@@ -11,7 +11,7 @@ namespace UiTime.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[AllowAnonymous]
 public class ScheduleController : ControllerBase
 {
     public readonly AppDbContext _context;
@@ -166,6 +166,51 @@ public class ScheduleController : ControllerBase
         }
         
         var startOfDay = date.Date; 
+        var endOfDay = startOfDay.AddDays(1);
+        
+        var lessons = await _context.Lessons
+            .Where(l => l.User.TelegramId == telegramId 
+                        && l.StartTime >= startOfDay 
+                        && l.StartTime < endOfDay)
+            .OrderBy(l => l.StartTime)
+            .Select(l => new LessonDto(  
+                l.Id,
+                l.Subject.Name,     
+                l.Subject.Type,
+                l.StartTime,
+                l.EndTime,
+                l.Location,
+                l.OnlineLink
+            ))
+            .ToListAsync();
+
+        return Ok(lessons);
+    }
+    
+    [HttpGet("nearest")]
+    public async Task<ActionResult<IEnumerable<LessonDto>>> GetNearestDaySchedule()
+    {
+        var telegramIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                               ?? User.FindFirst("sub")?.Value;
+        
+        if (!long.TryParse(telegramIdString, out long telegramId))
+        {
+            return Unauthorized("Invalid token claims. Cannot find TelegramId."); 
+        }
+
+        var now = DateTime.UtcNow;
+        
+        var nearestLesson = await _context.Lessons
+            .Where(l => l.User.TelegramId == telegramId && l.StartTime >= now)
+            .OrderBy(l => l.StartTime)
+            .FirstOrDefaultAsync();
+        
+        if (nearestLesson == null)
+        {
+            return Ok(new List<LessonDto>());
+        }
+        
+        var startOfDay = nearestLesson.StartTime.Date;
         var endOfDay = startOfDay.AddDays(1);
         
         var lessons = await _context.Lessons

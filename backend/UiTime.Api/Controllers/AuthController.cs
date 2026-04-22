@@ -46,6 +46,11 @@ public class AuthController : ControllerBase
             };
             _context.Users.Add(user);
             
+            if (invite.Code != "DEV_DEBUG_2026") 
+            {
+                invite.IsUsed = true;
+            }
+            
             invite.IsUsed = true;
             invite.UsedByTelegramId = request.TelegramId;
 
