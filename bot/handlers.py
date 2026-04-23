@@ -15,7 +15,6 @@ class RegistrationFSM(StatesGroup):
 
 @auth_router.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
-    """Entry point: Clears previous states and asks for invite code."""
     await state.clear()
     
     if message.from_user.id in session_db:
@@ -30,7 +29,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 @auth_router.message(StateFilter(RegistrationFSM.waiting_for_invite))
 async def process_invite_code(message: types.Message, state: FSMContext):
-    """Captures the code and sends it to the C# API along with user data."""
     invite_code = message.text
     telegram_id = message.from_user.id
     
