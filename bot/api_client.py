@@ -6,7 +6,6 @@ class ApiClient:
         self.base_url = base_url
 
     async def login(self, telegram_id: int, username: str, invite_code: str) -> dict:
-        """Calls the C# backend to login/register a user and retrieve a JWT."""
         
         endpoint = f"{self.base_url}/api/auth/login" 
         
