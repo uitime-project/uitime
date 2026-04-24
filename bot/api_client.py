@@ -56,3 +56,19 @@ class ApiClient:
                 "status": "error", 
                 "message": "An unexpected error occurred."
             }
+        
+    async def get_pending_reminders(self) -> list:
+        """Pings the C# backend to get a list of reminders that need to be sent."""
+        endpoint = f"{self.base_url}/api/reminders/pending"
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(endpoint) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    else:
+                        logging.error(f"Failed to fetch reminders. Status: {response.status}")
+                        return []
+        except Exception as e:
+            logging.error(f"Scheduler API error: {e}")
+            return []
