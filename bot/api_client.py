@@ -72,3 +72,38 @@ class ApiClient:
         except Exception as e:
             logging.error(f"Scheduler API error: {e}")
             return []
+        
+    async def _fetch_schedule(self, endpoint_path: str, token: str) -> dict:
+        """Helper method to securely fetch schedule data using the JWT."""
+        endpoint = f"{self.base_url}/api/schedule/{endpoint_path}"
+
+        # Attach the JWT to the HTTP Headers
+        headers = {"Authorization": f"Bearer {token}"}
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(endpoint, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return {"status": "success", "data": data}
+                    elif response.status == 401:
+                        return {"status": "error", "message": "Session expired. Please log in again"}
+                    else:
+                        error_text = await response.text()
+                        logging.error(f"Schedule fetch failed. Status: {response.status}. Response: {error_text}")
+                        return {"status": "error", "message": "Failed to retrieve schedule from the server"}
+                    
+        except Exception as e:
+            logging.error(f"API error:{e}")
+            return {"status": "error", "message": "An unexpected error occurred"}
+        
+    async def get_today_schedule(self, token: str) -> dict:
+        """Hits the GET /today endpoint"""
+        return await self._fetch_schedule("today", token)
+    
+    async def get_tommorow_schedule(self, token: str) -> dict:
+        """Hits the GET /tommorow endpoint"""
+        return await self._fetch_schedule("tommorow", token)
+    
+
+
