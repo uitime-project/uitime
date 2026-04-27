@@ -2,6 +2,7 @@ from aiogram import Router, types
 from aiogram.filters import CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram import F, Bot
 from datetime import datetime
 
 from api_client import ApiClient
@@ -110,3 +111,49 @@ async def handle_schedule_buttons(message: types.Message):
         await processing_msg.edit_text(schedule_text, disable_web_page_preview=True)
     else:
         await processing_msg.edit_text(f"❌ {response.get('message')}")
+
+@auth_router.message(lambda message: message.text == "📤 Upload Schedule")
+async def prompt_upload(message: types.Message):
+    """Triggers when he user clicks the Upload button"""
+    token = session_db.get(message.from_user.id)
+    if not token:
+        await message.answer("Your session has expired. Please type /start to log in")
+        return
+    
+    await message.answer(
+        "Please send me your schedule file as a **Document** 📎.\n\n"
+        "*(Don't send it as a photo, use the 'File' or 'Document' option)*"
+    )
+
+@auth_router.message(F.document)
+async def handle_schedule_document(message: types.Message, bot: Bot):
+    """Catches any document sent to the bot and forwards it to the C# API"""
+    token = session_db.get(message.from_user.id)
+    if not token:
+        await message.answer("Please log in using /start before uploading a schedule")
+        return
+    
+    document = message.document
+    processing_msg = await message.answer("Downloading file from Telegrm... 📥")
+
+    try:
+        # Get the file path from servers
+        file_info = await bot.get_file(document.file_id)
+
+        # Download the file into memory
+        downloaded_file = await bot.download_file(file_info.file_path)
+        file_bytes = downloaded_file.read()
+
+        await processing_msg.edit_text("Uploading to the Uitime Server... 📥")
+
+        # Send it ti the C# Backend
+        response = await api.upload_schedule(token, file_bytes, document.file_name)
+
+        # Report the results
+        if response.get("status") == "success":
+            await processing_msg.edit_text(f"✅ {response.get('message')}")
+        else:
+            await processing_msg.edit_text(f"❌ Error: {response.get('message')}")
+
+    except Exception as e:
+        await processing_msg.edit_text("❌ Failed to process the document. Please try again")
