@@ -11,40 +11,42 @@ namespace UiTime.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[AllowAnonymous]
+[Authorize]
 public class ScheduleController : ControllerBase
 {
-    public readonly AppDbContext _context;
-    public readonly IScheduleParserService _parserService;
+    private readonly AppDbContext _context;
+    private readonly IScheduleParserService _parserService;
+    private readonly TimeZoneInfo _polishZone;
 
     public ScheduleController(AppDbContext dbContext, IScheduleParserService scheduleParserService)
     {
         _context = dbContext;
         _parserService = scheduleParserService;
+        _polishZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Warsaw");
     }
-    
+
     [HttpPost("upload")]
     public async Task<IActionResult> UploadSchedule(IFormFile file)
     {
         if (file == null || file.Length == 0)
             return BadRequest("File is empty or not provided.");
-        
+
         var telegramIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
                                ?? User.FindFirst("sub")?.Value;
 
         if (!long.TryParse(telegramIdString, out var telegramId))
             return Unauthorized("Invalid token claims. Cannot find TelegramId.");
-        
+
         var user = await _context.Users.FirstOrDefaultAsync(u => u.TelegramId == telegramId);
         if (user == null)
             return NotFound("User not found in database.");
-        
+
         using var stream = file.OpenReadStream();
         var parsedLessons = _parserService.ParseSchedule(stream).ToList();
 
         if (!parsedLessons.Any())
             return Ok(new { Message = "No lessons found in the file." });
-        
+
         var existingSubjects = await _context.Subjects.ToListAsync();
         var newLessons = new List<Lesson>();
 
@@ -64,7 +66,7 @@ public class ScheduleController : ControllerBase
                 _context.Subjects.Add(subject);
                 existingSubjects.Add(subject);
             }
-            
+
             newLessons.Add(new Lesson
             {
                 UserId = user.Id,
@@ -75,50 +77,49 @@ public class ScheduleController : ControllerBase
                 OnlineLink = parsed.OnlineLink
             });
         }
-        
+
         var existingUserLessons = await _context.Lessons
             .Where(l => l.UserId == user.Id)
             .ToListAsync();
-        
+
         _context.Lessons.RemoveRange(existingUserLessons);
-        
         _context.Lessons.AddRange(newLessons);
         await _context.SaveChangesAsync();
 
         return Ok(new { Message = $"Successfully uploaded {newLessons.Count} lessons for user {user.Username}." });
     }
-    
-   [HttpGet("today")]
+
+    [HttpGet("today")]
     public async Task<ActionResult<IEnumerable<LessonDto>>> GetTodaySchedule()
     {
         var telegramIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
                                ?? User.FindFirst("sub")?.Value;
-        
+
         if (!long.TryParse(telegramIdString, out long telegramId))
-        {
-            return Unauthorized("Invalid token claims. Cannot find TelegramId."); 
-        }
-        
+            return Unauthorized("Invalid token claims.");
+
         var startOfToday = DateTime.UtcNow.Date;
         var startOfTomorrow = startOfToday.AddDays(1);
-        
+
         var lessons = await _context.Lessons
+            .Include(l => l.Subject)
             .Where(l => l.User.TelegramId == telegramId 
                         && l.StartTime >= startOfToday 
                         && l.StartTime < startOfTomorrow)
             .OrderBy(l => l.StartTime)
-            .Select(l => new LessonDto(
-                l.Id,
-                l.Subject.Name,  
-                l.Subject.Type,
-                l.StartTime,
-                l.EndTime,
-                l.Location,
-                l.OnlineLink
-            ))
             .ToListAsync();
 
-        return Ok(lessons);
+        var dtos = lessons.Select(l => new LessonDto(
+            l.Id,
+            l.Subject.Name,
+            l.Subject.Type,
+            TimeZoneInfo.ConvertTime(l.StartTime, _polishZone),
+            TimeZoneInfo.ConvertTime(l.EndTime, _polishZone),
+            l.Location,
+            l.OnlineLink
+        ));
+
+        return Ok(dtos);
     }
 
     [HttpGet("tomorrow")]
@@ -126,109 +127,107 @@ public class ScheduleController : ControllerBase
     {
         var telegramIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
                                ?? User.FindFirst("sub")?.Value;
-        
+
         if (!long.TryParse(telegramIdString, out long telegramId))
-        {
-            return Unauthorized("Invalid token claims. Cannot find TelegramId."); 
-        }
-        
+            return Unauthorized("Invalid token claims.");
+
         var startOfTomorrow = DateTime.UtcNow.Date.AddDays(1);
         var startOfDayAfterTomorrow = startOfTomorrow.AddDays(1);
-        
+
         var lessons = await _context.Lessons
+            .Include(l => l.Subject)
             .Where(l => l.User.TelegramId == telegramId 
                         && l.StartTime >= startOfTomorrow 
                         && l.StartTime < startOfDayAfterTomorrow)
             .OrderBy(l => l.StartTime)
-            .Select(l => new LessonDto(  
-                l.Id,
-                l.Subject.Name,     
-                l.Subject.Type,
-                l.StartTime,
-                l.EndTime,
-                l.Location,
-                l.OnlineLink
-            ))
             .ToListAsync();
 
-        return Ok(lessons);
+        var dtos = lessons.Select(l => new LessonDto(
+            l.Id,
+            l.Subject.Name,
+            l.Subject.Type,
+            TimeZoneInfo.ConvertTime(l.StartTime, _polishZone),
+            TimeZoneInfo.ConvertTime(l.EndTime, _polishZone),
+            l.Location,
+            l.OnlineLink
+        ));
+
+        return Ok(dtos);
     }
-    
+
     [HttpGet("date/{date}")]
     public async Task<ActionResult<IEnumerable<LessonDto>>> GetScheduleByDate([FromRoute] DateTime date)
     {
         var telegramIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
                                ?? User.FindFirst("sub")?.Value;
-        
+
         if (!long.TryParse(telegramIdString, out long telegramId))
-        {
-            return Unauthorized("Invalid token claims. Cannot find TelegramId."); 
-        }
-        
-        var startOfDay = date.Date; 
+            return Unauthorized("Invalid token claims.");
+
+        var startOfDay = date.Date;
         var endOfDay = startOfDay.AddDays(1);
-        
+
         var lessons = await _context.Lessons
+            .Include(l => l.Subject)
             .Where(l => l.User.TelegramId == telegramId 
                         && l.StartTime >= startOfDay 
                         && l.StartTime < endOfDay)
             .OrderBy(l => l.StartTime)
-            .Select(l => new LessonDto(  
-                l.Id,
-                l.Subject.Name,     
-                l.Subject.Type,
-                l.StartTime,
-                l.EndTime,
-                l.Location,
-                l.OnlineLink
-            ))
             .ToListAsync();
 
-        return Ok(lessons);
+        var dtos = lessons.Select(l => new LessonDto(
+            l.Id,
+            l.Subject.Name,
+            l.Subject.Type,
+            TimeZoneInfo.ConvertTime(l.StartTime, _polishZone),
+            TimeZoneInfo.ConvertTime(l.EndTime, _polishZone),
+            l.Location,
+            l.OnlineLink
+        ));
+
+        return Ok(dtos);
     }
-    
+
     [HttpGet("nearest")]
     public async Task<ActionResult<IEnumerable<LessonDto>>> GetNearestDaySchedule()
     {
         var telegramIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
                                ?? User.FindFirst("sub")?.Value;
-        
+
         if (!long.TryParse(telegramIdString, out long telegramId))
-        {
-            return Unauthorized("Invalid token claims. Cannot find TelegramId."); 
-        }
+            return Unauthorized("Invalid token claims.");
 
         var now = DateTime.UtcNow;
-        
+
         var nearestLesson = await _context.Lessons
             .Where(l => l.User.TelegramId == telegramId && l.StartTime >= now)
             .OrderBy(l => l.StartTime)
             .FirstOrDefaultAsync();
-        
+
         if (nearestLesson == null)
-        {
             return Ok(new List<LessonDto>());
-        }
-        
+
         var startOfDay = nearestLesson.StartTime.Date;
         var endOfDay = startOfDay.AddDays(1);
-        
+
         var lessons = await _context.Lessons
+            .Include(l => l.Subject)
             .Where(l => l.User.TelegramId == telegramId 
                         && l.StartTime >= startOfDay 
                         && l.StartTime < endOfDay)
             .OrderBy(l => l.StartTime)
-            .Select(l => new LessonDto(  
-                l.Id,
-                l.Subject.Name,     
-                l.Subject.Type,
-                l.StartTime,
-                l.EndTime,
-                l.Location,
-                l.OnlineLink
-            ))
             .ToListAsync();
 
-        return Ok(lessons);
+        var dtos = lessons.Select(l => new LessonDto(
+            l.Id,
+            l.Subject.Name,
+            l.Subject.Type,
+            TimeZoneInfo.ConvertTime(l.StartTime, _polishZone),
+            TimeZoneInfo.ConvertTime(l.EndTime, _polishZone),
+            l.Location,
+            l.OnlineLink
+        ));
+
+        return Ok(dtos);
     }
 }
