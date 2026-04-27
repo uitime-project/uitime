@@ -1,15 +1,16 @@
+import os
 import aiohttp
 import logging
 
 class ApiClient:
-    def __init__(self, base_url: str = "http://localhost:5068"):
-        self.base_url = base_url
+    def __init__(self):
+
+        raw_url = os.getenv("API_BASE_URL", "https://uitime.onrender.com")
+        self.base_url = raw_url.rstrip('/')
 
     async def login(self, telegram_id: int, username: str, invite_code: str) -> dict:
+        endpoint = f"{self.base_url}/api/Auth/login" 
         
-        endpoint = f"{self.base_url}/api/auth/login" 
-        
-        # Matches LoginRequestDto in C# (ASP.NET Core automatically expects camelCase by default)
         payload = {
             "telegramId": telegram_id,
             "username": username,
@@ -19,9 +20,7 @@ class ApiClient:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(endpoint, json=payload) as response:
-                    
                     if response.status == 200:
-                        # Success! Maps to AuthResponseDto
                         data = await response.json()
                         return {
                             "status": "success",
@@ -29,14 +28,12 @@ class ApiClient:
                             "message": data.get("message", "Login successful!")
                         }
                     elif response.status == 403:
-                        # Matches Forbid() return in AuthController
                         error_data = await response.text()
                         return {
                             "status": "error",
                             "message": error_data or "Invalid or already used invite code."
                         }
                     else:
-                        # Fallback for 500s or other errors
                         error_data = await response.text()
                         logging.warning(f"Auth failed. Status: {response.status}. Response: {error_data}")
                         return {
@@ -58,7 +55,6 @@ class ApiClient:
             }
         
     async def get_pending_reminders(self) -> list:
-        """Pings the C# backend to get a list of reminders that need to be sent."""
         endpoint = f"{self.base_url}/api/reminders/pending"
         
         try:
@@ -74,10 +70,7 @@ class ApiClient:
             return []
         
     async def _fetch_schedule(self, endpoint_path: str, token: str) -> dict:
-        """Helper method to securely fetch schedule data using the JWT."""
-        endpoint = f"{self.base_url}/api/schedule/{endpoint_path}"
-
-        # Attach the JWT to the HTTP Headers
+        endpoint = f"{self.base_url}/api/Schedule/{endpoint_path}"
         headers = {"Authorization": f"Bearer {token}"}
 
         try:
@@ -98,16 +91,15 @@ class ApiClient:
             return {"status": "error", "message": "An unexpected error occurred"}
         
     async def get_today_schedule(self, token: str) -> dict:
-        """Hits the GET /today endpoint"""
         return await self._fetch_schedule("today", token)
     
-    async def get_tommorow_schedule(self, token: str) -> dict:
-        """Hits the GET /tommorow endpoint"""
-        return await self._fetch_schedule("tommorow", token)
+    async def get_tomorrow_schedule(self, token: str) -> dict:
+
+        return await self._fetch_schedule("tomorrow", token)
     
     async def upload_schedule(self, token: str, file_bytes: bytes, filename: str) -> dict:
-        """Sends the downloaded schedule file to the C# backend."""
-        endpoint = f"{self.base_url}/api/schedule/upload"
+        # Велика літера S
+        endpoint = f"{self.base_url}/api/Schedule/upload"
         headers = {"Authorization": f"Bearer {token}"}
 
         form_data = aiohttp.FormData()
@@ -118,17 +110,16 @@ class ApiClient:
                 async with session.post(endpoint, headers=headers, data=form_data) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return {"status": "success", "message": data.get("mesage", "Upload successful")}
+
+                        return {"status": "success", "message": data.get("message", "Upload successful")}
                     elif response.status == 401:
                         return {"status": "error", "message": "Session expired. Please log in again"}
                     else:
-                        error_text = await response.json()
+
+                        error_text = await response.text()
                         logging.error(f"Upload failed: {response.status} - {error_text}")
                         return {"status": "error", "message": "Failed to upload the file to the server"}
                     
         except Exception as e:
             logging.error(f"API Upload Error: {e}")
-            return {"status": "error", "message": "An unexpected error occured during upload"}
-    
-
-
+            return {"status": "error", "message": "An unexpected error occurred during upload"}
