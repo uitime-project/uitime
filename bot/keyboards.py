@@ -8,7 +8,8 @@ def get_main_menu():
             KeyboardButton(text="📅 Tomorrow")
         ],
         [
-            KeyboardButton(text="⚙️ Settings")
+            KeyboardButton(text="⚙️ Settings"),
+            KeyboardButton(text="📤 Upload Schedule")
         ]
     ]
     return ReplyKeyboardMarkup(

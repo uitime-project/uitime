@@ -105,5 +105,30 @@ class ApiClient:
         """Hits the GET /tommorow endpoint"""
         return await self._fetch_schedule("tommorow", token)
     
+    async def upload_schedule(self, token: str, file_bytes: bytes, filename: str) -> dict:
+        """Sends the downloaded schedule file to the C# backend."""
+        endpoint = f"{self.base_url}/api/schedule/upload"
+        headers = {"Authorization": f"Bearer {token}"}
+
+        form_data = aiohttp.FormData()
+        form_data.add_field('file', file_bytes, filename=filename, content_type='application/octet-stream')
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(endpoint, headers=headers, data=form_data) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return {"status": "success", "message": data.get("mesage", "Upload successful")}
+                    elif response.status == 401:
+                        return {"status": "error", "message": "Session expired. Please log in again"}
+                    else:
+                        error_text = await response.json()
+                        logging.error(f"Upload failed: {response.status} - {error_text}")
+                        return {"status": "error", "message": "Failed to upload the file to the server"}
+                    
+        except Exception as e:
+            logging.error(f"API Upload Error: {e}")
+            return {"status": "error", "message": "An unexpected error occured during upload"}
+    
 
 
