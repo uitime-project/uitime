@@ -4,7 +4,7 @@ import logging
 
 class ApiClient:
     def __init__(self):
-        raw_url = os.getenv("API_BASE_URL", "http://localhost:5068")
+        raw_url = os.getenv("API_BASE_URL")
         self.base_url = raw_url.rstrip('/')
 
     async def login(self, telegram_id: int, username: str, invite_code: str) -> dict:

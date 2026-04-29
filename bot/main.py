@@ -3,14 +3,15 @@ import logging
 import sys
 import os
 from dotenv import load_dotenv
+
+load_dotenv() 
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from handlers import auth_router
 from scheduler import setup_scheduler 
-
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 async def main():
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
