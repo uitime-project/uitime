@@ -6,9 +6,9 @@ from aiogram import F, Bot
 from aiogram.types import LinkPreviewOptions
 from datetime import datetime
 
-from services.api_client import ApiClient
+from services.api_service import ApiClient
 from keyboards.keyboards import get_main_menu
-from services.storage import db 
+from services.storage_service import db 
 
 auth_router = Router()
 api = ApiClient()
