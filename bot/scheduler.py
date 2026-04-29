@@ -1,7 +1,7 @@
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
-from api_client import ApiClient
+from bot.services.api_service import ApiClient
 
 api = ApiClient()
 
