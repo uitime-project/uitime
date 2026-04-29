@@ -155,17 +155,29 @@ public class ScheduleController : ControllerBase
         return Ok(dtos);
     }
 
-    [HttpGet("date/{date}")]
-    public async Task<ActionResult<IEnumerable<LessonDto>>> GetScheduleByDate([FromRoute] DateTime date)
+    [HttpGet("date/{startDate}/{endDate?}")]
+    public async Task<ActionResult<IEnumerable<LessonDto>>> GetScheduleByDate([FromRoute] DateTime startDate, [FromRoute] DateTime? endDate)
     {
         var telegramIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
                                ?? User.FindFirst("sub")?.Value;
 
         if (!long.TryParse(telegramIdString, out long telegramId))
             return Unauthorized("Invalid token claims.");
-
-        var startOfDay = date.Date;
-        var endOfDay = startOfDay.AddDays(1);
+        
+        var startOfDay = startDate.Date;
+        
+        DateTime endOfDay;
+        if (endDate.HasValue)
+        {
+            if (endDate.Value.Date < startOfDay)
+                return BadRequest("End date cannot be earlier than start date.");
+            
+            endOfDay = endDate.Value.Date.AddDays(1);
+        }
+        else
+        {
+            endOfDay = startOfDay.AddDays(1);
+        }
 
         var lessons = await _context.Lessons
             .Include(l => l.Subject)
