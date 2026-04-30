@@ -4,10 +4,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram import F, Bot
 from aiogram.types import LinkPreviewOptions
-from datetime import datetime
+from datetime import datetime, timedelta, date
 
 from services.api_service import ApiClient
-from keyboards.keyboards import get_main_menu
+from keyboards.keyboards import get_main_menu, get_browser_keyboard
 from services.storage_service import db 
 
 auth_router = Router()
@@ -15,6 +15,9 @@ api = ApiClient()
 
 class RegistrationFSM(StatesGroup):
     waiting_for_invite = State()
+
+class BrowserFSM(StatesGroup):
+    browsing = State()
 
 def format_schedule(day_title: str, lessons: list) -> str:
     if not lessons:
@@ -36,17 +39,78 @@ def format_schedule(day_title: str, lessons: list) -> str:
         msg += "\n"
     return msg
 
+# --- Хелпер для умного кэширования (Берет пачками по 7 дней) ---
+async def get_cached_day(target_date: date, token: str, state: FSMContext) -> list:
+    data = await state.get_data()
+    cache_start_str = data.get("cache_start")
+    cache_end_str = data.get("cache_end")
+    lessons_cache = data.get("lessons_cache", {})
+
+    target_str = target_date.isoformat()
+
+    # Если даты нет в кэше, запрашиваем новую пачку (целую неделю)
+    if not cache_start_str or target_str < cache_start_str or target_str >= cache_end_str:
+        # Берем 3 дня назад и 4 дня вперед от выбранной даты
+        start_date = target_date - timedelta(days=3)
+        end_date = target_date + timedelta(days=4)
+        
+        start_str = start_date.isoformat()
+        end_str = end_date.isoformat()
+
+        response = await api.get_schedule_range(token, start_str, end_str)
+        lessons_cache = {} # Очищаем старый кэш
+        
+        if response.get("status") == "success":
+            for lesson in response.get("data", []):
+                # Группируем уроки по датам (YYYY-MM-DD)
+                lesson_date = lesson['startTime'].split('T')[0]
+                if lesson_date not in lessons_cache:
+                    lessons_cache[lesson_date] = []
+                lessons_cache[lesson_date].append(lesson)
+
+        # Сохраняем новые данные в память FSM
+        await state.update_data(
+            cache_start=start_str,
+            cache_end=end_str,
+            lessons_cache=lessons_cache
+        )
+
+    return lessons_cache.get(target_str, [])
+
+
+@auth_router.message(CommandStart())
+async def cmd_start(message: types.Message, state: FSMContext):
+    await state.clear()
+    
+    if db.get(message.from_user.id):
+        await message.answer("Welcome back! What would you like to do?", reply_markup=get_main_menu())
+        return
+
+    await message.answer("Welcome to UiTime! 👋\nPlease enter your invite code to get started:")
+    await state.set_state(RegistrationFSM.waiting_for_invite)
+
+@auth_router.message(StateFilter(RegistrationFSM.waiting_for_invite))
+async def process_invite_code(message: types.Message, state: FSMContext):
+    invite_code = message.text
+    telegram_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
+    
+    processing_msg = await message.answer("Verifying code securely with the server... ⏳")
+    response = await api.login(telegram_id, username, invite_code)
+    
+    if response.get("status") == "success":
+        db.set(telegram_id, response.get("token"))
+        await processing_msg.delete()
+        await message.answer(f"✅ {response.get('message')}\n\nSelect an option below:", reply_markup=get_main_menu())
+        await state.clear()
+    else:
+        await processing_msg.edit_text(f"❌ {response.get('message')}\n\nPlease try again:")
 
 @auth_router.message(lambda message: message.text in ["📅 Today", "📅 Tomorrow"])
 async def handle_schedule_buttons(message: types.Message):
     token = db.get(message.from_user.id)
-    
     if not token:
-        await message.answer(
-            "Your session has expired. Please type /start to log in again.", 
-            reply_markup=types.ReplyKeyboardRemove()
-        )
-        return
+        return await message.answer("Session expired. Type /start", reply_markup=types.ReplyKeyboardRemove())
 
     processing_msg = await message.answer("Fetching your schedule... 📥")
 
@@ -59,13 +123,74 @@ async def handle_schedule_buttons(message: types.Message):
 
     if response.get("status") == "success":
         schedule_text = format_schedule(day_title, response.get("data", []))
-
-        await processing_msg.edit_text(
-            schedule_text, 
-            link_preview_options=LinkPreviewOptions(is_disabled=True)
-        )
+        await processing_msg.edit_text(schedule_text, link_preview_options=LinkPreviewOptions(is_disabled=True))
     else:
         await processing_msg.edit_text(f"❌ {response.get('message')}")
+
+@auth_router.message(lambda message: message.text == "🗓️ Week Browser")
+async def enter_browser_mode(message: types.Message, state: FSMContext):
+    token = db.get(message.from_user.id)
+    if not token:
+        return await message.answer("Session expired. Type /start")
+
+    processing_msg = await message.answer("Loading browser... ⏳")
+    
+    current_date = date.today()
+    await state.set_state(BrowserFSM.browsing)
+    await state.update_data(current_date=current_date.isoformat())
+
+    lessons = await get_cached_day(current_date, token, state)
+    
+    day_title = current_date.strftime("%A, %d %b %Y")
+    schedule_text = format_schedule(day_title, lessons)
+
+    await processing_msg.edit_text(
+        schedule_text, 
+        reply_markup=get_browser_keyboard(),
+        link_preview_options=LinkPreviewOptions(is_disabled=True)
+    )
+
+@auth_router.callback_query(lambda c: c.data.startswith("browser_"))
+async def handle_browser_callbacks(callback_query: types.CallbackQuery, state: FSMContext):
+    action = callback_query.data.split("_")[1]
+
+    if action == "exit":
+        await callback_query.message.delete()
+        await callback_query.message.answer("Exited browser mode.", reply_markup=get_main_menu())
+        await state.clear()
+        return
+
+    data = await state.get_data()
+    current_date_str = data.get("current_date")
+    if not current_date_str:
+        await callback_query.answer("Session expired. Please restart browser mode.", show_alert=True)
+        return
+
+    token = db.get(callback_query.from_user.id)
+    current_date = date.fromisoformat(current_date_str)
+
+    if action == "prev":
+        current_date -= timedelta(days=1)
+    elif action == "next":
+        current_date += timedelta(days=1)
+
+    await state.update_data(current_date=current_date.isoformat())
+
+    lessons = await get_cached_day(current_date, token, state)
+    
+    day_title = current_date.strftime("%A, %d %b %Y")
+    schedule_text = format_schedule(day_title, lessons)
+
+    try:
+        await callback_query.message.edit_text(
+            schedule_text,
+            reply_markup=get_browser_keyboard(),
+            link_preview_options=LinkPreviewOptions(is_disabled=True)
+        )
+    except Exception:
+        pass
+
+    await callback_query.answer()
 
 @auth_router.message(lambda message: message.text == "📤 Upload Schedule")
 async def prompt_upload(message: types.Message):

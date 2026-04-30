@@ -74,6 +74,9 @@ class ApiClient:
 
     async def get_tomorrow_schedule(self, token: str) -> dict:
         return await self._fetch_schedule("tomorrow", token)
+    
+    async def get_schedule_range(self, token: str, start_date: str, end_date: str) -> dict:
+        return await self._fetch_schedule(f"date/{start_date}/{end_date}", token)
 
     async def upload_schedule(self, token: str, file_bytes: bytes, filename: str) -> dict:
         endpoint = f"{self.base_url}/api/Schedule/upload"
