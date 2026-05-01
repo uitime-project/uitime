@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -60,6 +61,45 @@ public class AuthController : ControllerBase
         var token = GenerateJwtToken(user);
 
         return Ok(new AuthResponseDto(token, "Welcome to UiTime!"));
+    }
+    
+    [HttpPost("generate-invite")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GenerateInviteCode()
+    {
+        string newCodeValue;
+        bool isUnique = false;
+
+        do
+        {
+            newCodeValue = $"UI-{GenerateRandomString(6)}";
+            isUnique = !await _context.InviteCodes.AnyAsync(c => c.Code == newCodeValue);
+        } 
+        while (!isUnique);
+        
+        var inviteCode = new InviteCode
+        {
+            Id = Guid.NewGuid(),
+            Code = newCodeValue,
+            IsUsed = false
+        };
+        
+        _context.InviteCodes.Add(inviteCode);
+        await _context.SaveChangesAsync();
+        
+        return Ok(new 
+        { 
+            Message = "Invite code generated successfully",
+            InviteCode = inviteCode.Code 
+        });
+    }
+    
+    private string GenerateRandomString(int length)
+    {
+        const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        var random = new Random();
+        return new string(Enumerable.Repeat(chars, length)
+            .Select(s => s[random.Next(s.Length)]).ToArray());
     }
     
     private string GenerateJwtToken(User user)
