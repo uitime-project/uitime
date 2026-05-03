@@ -242,4 +242,30 @@ public class ScheduleController : ControllerBase
 
         return Ok(dtos);
     }
+    
+    [HttpGet("subjects")]
+    public async Task<ActionResult<IEnumerable<SubjectDto>>> GetAllSubjects()
+    {
+        var telegramIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                               ?? User.FindFirst("sub")?.Value;
+
+        if (!long.TryParse(telegramIdString, out long telegramId))
+            return Unauthorized("Invalid token claims.");
+        
+        var userSubjects = await _context.Lessons
+            .Where(l => l.User.TelegramId == telegramId)
+            .Select(l => l.Subject)
+            .Distinct() 
+            .ToListAsync();
+    
+        var dtos = userSubjects.Select(s => new SubjectDto(
+            s.Id,
+            s.Name,
+            s.Type,
+            s.HasExam,
+            s.ExamDate
+        ));
+
+        return Ok(dtos);
+    }
 }
