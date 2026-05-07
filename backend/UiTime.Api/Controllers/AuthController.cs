@@ -125,4 +125,33 @@ public class AuthController : ControllerBase
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
+    
+    [HttpDelete("me")]
+    [Authorize]
+    public async Task<IActionResult> DeleteAccount()
+    {
+        var telegramIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value 
+                               ?? User.FindFirst("sub")?.Value;
+
+        if (!long.TryParse(telegramIdString, out var telegramId))
+            return Unauthorized("Invalid token claims.");
+        
+        var user = await _context.Users
+            .FirstOrDefaultAsync(u => u.TelegramId == telegramId);
+
+        if (user == null)
+            return NotFound("User not found.");
+        
+        var userLessons = await _context.Lessons
+            .Where(l => l.UserId == user.Id)
+            .ToListAsync();
+
+        _context.Lessons.RemoveRange(userLessons);
+        
+        _context.Users.Remove(user);
+
+        await _context.SaveChangesAsync();
+
+        return Ok(new { Message = "Account and all related schedule data successfully deleted." });
+    }
 }
