@@ -31,3 +31,18 @@ def get_browser_keyboard():
             InlineKeyboardButton(text="➡️", callback_data="browser_next")
         ]
     ])
+
+def get_settings_keyboard():
+    """Inline keyboard for settings menu"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🗑 Delete Account", callback_data="settings_delete_account")]
+    ])
+
+def get_confirm_delete_keyboard():
+    """Inline keyboard to confirm account deletion"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="❌ Cancel", callback_data="confirm_delete_no"),
+            InlineKeyboardButton(text="⚠️ Yes, Delete", callback_data="confirm_delete_yes")
+        ]
+    ])

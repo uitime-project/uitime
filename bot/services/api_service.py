@@ -97,3 +97,23 @@ class ApiClient:
         except Exception as e:
             logging.error(f"API Upload Error: {e}")
             return {"status": "error", "message": "Error during upload"}
+        
+    async def delete_account(self, token: str) -> dict:
+        endpoint = f"{self.base_url}/api/Auth/me"
+        headers = {"Authorization": f"Bearer {token}"}
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.delete(endpoint, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return {"status": "success", "message": data.get("message", "Account deleted successfully")}
+                    elif response.status == 401:
+                        return {"status": "error", "message": "Session expired."}
+                    else:
+                        error_text = await response.text()
+                        logging.error(f"Delete failed: {response.status} - {error_text}")
+                        return {"status": "error", "message": "Failed to delete account."}
+        except Exception as e:
+            logging.error(f"API Delete Error: {e}")
+            return {"status": "error", "message": "Error during deletion"}
