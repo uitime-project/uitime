@@ -15,4 +15,8 @@ class TokenStorage:
         self.conn.execute("INSERT OR REPLACE INTO sessions (telegram_id, token) VALUES (?, ?)", (telegram_id, token))
         self.conn.commit()
 
+    def delete(self, telegram_id: int):
+        self.conn.execute("DELETE FROM sessions WHERE telegram_id = ?", (telegram_id,))
+        self.conn.commit()
+
 db = TokenStorage()

@@ -7,7 +7,7 @@ from aiogram.types import LinkPreviewOptions
 from datetime import datetime, timedelta, date
 
 from services.api_service import ApiClient
-from keyboards.keyboards import get_main_menu, get_browser_keyboard
+from keyboards.keyboards import get_main_menu, get_browser_keyboard, get_settings_keyboard, get_confirm_delete_keyboard
 from services.storage_service import db 
 
 auth_router = Router()
@@ -39,8 +39,8 @@ def format_schedule(day_title: str, lessons: list) -> str:
         msg += "\n"
     return msg
 
-# --- Хелпер для умного кэширования (Берет пачками по 7 дней) ---
 async def get_cached_day(target_date: date, token: str, state: FSMContext) -> list:
+    
     data = await state.get_data()
     cache_start_str = data.get("cache_start")
     cache_end_str = data.get("cache_end")
@@ -48,9 +48,7 @@ async def get_cached_day(target_date: date, token: str, state: FSMContext) -> li
 
     target_str = target_date.isoformat()
 
-    # Если даты нет в кэше, запрашиваем новую пачку (целую неделю)
     if not cache_start_str or target_str < cache_start_str or target_str >= cache_end_str:
-        # Берем 3 дня назад и 4 дня вперед от выбранной даты
         start_date = target_date - timedelta(days=3)
         end_date = target_date + timedelta(days=4)
         
@@ -58,17 +56,15 @@ async def get_cached_day(target_date: date, token: str, state: FSMContext) -> li
         end_str = end_date.isoformat()
 
         response = await api.get_schedule_range(token, start_str, end_str)
-        lessons_cache = {} # Очищаем старый кэш
+        lessons_cache = {}
         
         if response.get("status") == "success":
             for lesson in response.get("data", []):
-                # Группируем уроки по датам (YYYY-MM-DD)
                 lesson_date = lesson['startTime'].split('T')[0]
                 if lesson_date not in lessons_cache:
                     lessons_cache[lesson_date] = []
                 lessons_cache[lesson_date].append(lesson)
 
-        # Сохраняем новые данные в память FSM
         await state.update_data(
             cache_start=start_str,
             cache_end=end_str,
@@ -232,3 +228,55 @@ async def handle_schedule_document(message: types.Message, bot: Bot):
 
     except Exception as e:
         await processing_msg.edit_text("❌ Failed to process the document. Please try again")
+
+@auth_router.message(lambda message: message.text == "⚙️ Settings")
+async def open_settings(message: types.Message):
+    token = db.get(message.from_user.id)
+    if not token:
+        return await message.answer("Session expired. Type /start", reply_markup=types.ReplyKeyboardRemove())
+    
+    await message.answer(
+        "⚙️ <b>Settings Menu</b>\n\nChoose an option below:", 
+        reply_markup=get_settings_keyboard()
+    )
+
+@auth_router.callback_query(lambda c: c.data.startswith("settings_"))
+async def handle_settings_callbacks(callback_query: types.CallbackQuery):
+    action = callback_query.data.split("_", 1)[1]
+    
+    if action == "delete_account":
+        await callback_query.message.edit_text(
+            "⚠️ <b>WARNING!</b>\n\nAre you sure you want to delete your account?\n"
+            "This action is <b>irreversible</b>. All your schedule data will be permanently wiped.",
+            reply_markup=get_confirm_delete_keyboard()
+        )
+    await callback_query.answer()
+
+@auth_router.callback_query(lambda c: c.data.startswith("confirm_delete_"))
+async def handle_confirm_delete(callback_query: types.CallbackQuery, state: FSMContext):
+    action = callback_query.data.split("_", 2)[2]
+    
+    if action == "no":
+        await callback_query.message.edit_text("Phew! Your account is safe. 🛡️")
+        return await callback_query.answer()
+    
+    if action == "yes":
+        telegram_id = callback_query.from_user.id
+        token = db.get(telegram_id)
+        
+        if not token:
+            await callback_query.answer("Session expired.", show_alert=True)
+            return
+        
+        await callback_query.message.edit_text("Deleting account... ⏳")
+        response = await api.delete_account(token)
+        
+        if response.get("status") == "success":
+            db.delete(telegram_id)
+            await state.clear()
+            await callback_query.message.edit_text("✅ Your account and schedule data have been successfully wiped from our servers.")
+            await callback_query.message.answer("Goodbye! 👋\nType /start if you want to use the bot again.", reply_markup=types.ReplyKeyboardRemove())
+        else:
+            await callback_query.message.edit_text(f"❌ {response.get('message')}")
+            
+    await callback_query.answer()
