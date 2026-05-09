@@ -1,4 +1,5 @@
 from aiogram import Router, types
+from aiogram.filters import Command
 from aiogram.filters import CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -280,3 +281,15 @@ async def handle_confirm_delete(callback_query: types.CallbackQuery, state: FSMC
             await callback_query.message.edit_text(f"❌ {response.get('message')}")
             
     await callback_query.answer()
+
+@auth_router.message(Command("help"))
+async def cmd_help(message: types.Message):
+    help_text = (
+        "🤖 <b>uitime help</b>\n\n"
+        "Here's how to use the bot:\n"
+        "1️⃣ Use /start to log in with your invite code.\n"
+        "2️⃣ Use <b>📤 Upload Schedule</b> to send your <code>.ics</code> file.\n"
+        "3️⃣ Use the menu to check your classes for today or browse the week.\n\n"
+        "Lost your code? Get a new one at uitime.vzalxndr.com"
+    )
+    await message.answer(help_text, parse_mode="HTML")
